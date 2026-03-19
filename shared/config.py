@@ -1,6 +1,7 @@
 """
 Authentication:
-Set `GOOGLE_API_KEY`, `GOOGLE_PROJECT_ID`, and `TAVILY_API_KEY` in `.env` at project root
+Set `GOOGLE_API_KEY`, `GOOGLE_PROJECT_ID`, and `TAVILY_API_KEY` in `.env` at project root.
+LLM: Ollama (local, pas de clé requise). RAG embeddings: Google Gemini.
 """
 
 import os
@@ -8,16 +9,17 @@ from pathlib import Path
 
 from google import genai
 from dotenv import load_dotenv
+from ollama import AsyncClient
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.models.google import GoogleModelSettings
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(ROOT_DIR / ".env")
+
+load_dotenv(ROOT_DIR / ".env", override=True)
 google_api_key = os.getenv("GOOGLE_API_KEY", "").strip()
 google_project_id = os.getenv("GOOGLE_PROJECT_ID", "").strip()
 tavily_api_key = os.getenv("TAVILY_API_KEY", "").strip()
-
 
 class ProjectSettings(BaseModel):
     model_config = ConfigDict(validate_default=True)
@@ -27,8 +29,8 @@ class ProjectSettings(BaseModel):
     google_project_id: str = Field(default=google_project_id, min_length=1)
     tavily_api_key: str = Field(default=tavily_api_key, min_length=1)
 
-    # For LLM and Agent
-    llm_model_name: str = "gemini-2.5-flash-lite"
+    # For LLM (Ollama) and Agent
+    llm_model_name: str = "gemma3:4b"
     llm_temperature: float = Field(default=0.4, ge=0.0, le=2.0)
     llm_top_p: float = Field(default=0.9, ge=0.0, le=1.0)
     llm_top_k: int = Field(default=40, ge=1)
@@ -48,6 +50,11 @@ google_model_settings = GoogleModelSettings(
     google_thinking_config={"thinking_budget": project_settings.llm_thinking_budget},
 )
 
+# Client Ollama pour les appels LLM (assistant, agent)
+ollama_client = AsyncClient()
+
+# Client Google GenAI conservé pour le RAG (embeddings)
 genai_client = genai.Client(
     api_key=project_settings.google_api_key,
 )
+
