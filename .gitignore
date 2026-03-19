@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Misc
+.vscode
+.idea
+.env
+
+# logs and data
+clean_*
+*/logs/
+TP2_travel_planner_RAG/data/chroma*
