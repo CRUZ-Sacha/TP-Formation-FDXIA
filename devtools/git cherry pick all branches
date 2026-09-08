@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DRY_RUN=0
+SOURCE_BRANCH="dev"
+SOURCE_COMMIT=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --source-branch)
+      SOURCE_BRANCH="$2"
+      shift 2
+      ;;
+    --source-commit)
+      SOURCE_COMMIT="$2"
+      shift 2
+      ;;
+    *)
+      echo "Argument inconnu : $1"
+      echo "Usage : ./sync_dev_to_tp_branches.sh [--dry-run] [--source-branch <branche>] [--source-commit <hash>]"
+      exit 1
+      ;;
+  esac
+done
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "Le dépôt a des modifications suivies non validées. Committez ou stash avant de lancer le script."
+  exit 1
+fi
+
+if [[ -z "$SOURCE_COMMIT" ]]; then
+  SOURCE_COMMIT="$(git rev-parse "refs/heads/${SOURCE_BRANCH}")"
+fi
+
+if ! git cat-file -e "${SOURCE_COMMIT}^{commit}" 2>/dev/null; then
+  echo "Commit source introuvable : $SOURCE_COMMIT"
+  exit 1
+fi
+
+SOURCE_MESSAGE="$(git log -1 --format=%s "$SOURCE_COMMIT")"
+CURRENT_BRANCH="$(git branch --show-current)"
+TARGET_BRANCHES=("TP1_travel_planner_LLM" "TP2_travel_planner_RAG" "TP3_travel_planner_Agent")
+CHANGED_FILES="$(git show --pretty='' --name-only "$SOURCE_COMMIT")"
+
+if [[ -z "$CHANGED_FILES" ]]; then
+  echo "Aucun fichier modifié dans le commit source."
+  exit 0
+fi
+
+cleanup() {
+  git switch "$CURRENT_BRANCH" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+echo "Commit source : $SOURCE_COMMIT"
+echo "Message commit : $SOURCE_MESSAGE"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "Mode : DRY RUN"
+fi
+
+for TARGET_BRANCH in "${TARGET_BRANCHES[@]}"; do
+  echo
+  echo "=== ${TARGET_BRANCH} ==="
+  git switch "$TARGET_BRANCH" >/dev/null
+
+  BRANCH_CHANGED=0
+  while IFS= read -r FILE_PATH; do
+    [[ -z "$FILE_PATH" ]] && continue
+
+    # On applique uniquement si le fichier existe déjà dans la branche cible
+    if git cat-file -e "HEAD:${FILE_PATH}" 2>/dev/null; then
+      if ! git diff --quiet "HEAD" "$SOURCE_COMMIT" -- "$FILE_PATH"; then
+        if [[ "$DRY_RUN" -eq 1 ]]; then
+          echo "would update : $FILE_PATH"
+        else
+          git restore --source "$SOURCE_COMMIT" -- "$FILE_PATH"
+          echo "updated : $FILE_PATH"
+        fi
+        BRANCH_CHANGED=1
+      fi
+    fi
+  done <<< "$CHANGED_FILES"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    if [[ "$BRANCH_CHANGED" -eq 0 ]]; then
+      echo "no change"
+    fi
+    continue
+  fi
+
+  if [[ -n "$(git status --porcelain)" ]]; then
+    git add -A
+    git commit -m "$SOURCE_MESSAGE" >/dev/null
+    echo "commit créé : $(git rev-parse --short HEAD)"
+  else
+    echo "no change"
+  fi
+done
