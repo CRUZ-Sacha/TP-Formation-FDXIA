@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+# Garde-fou : si ce script est "sourcé" (source ./script, . ./script) au lieu
+# d'être exécuté, la moindre erreur avec `set -e` fermera ton terminal actuel
+# au lieu de juste arrêter le script. On refuse ce mode d'appel.
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+  echo "Ne pas 'source' ce script : lance-le avec bash \"git push all\" ou ./\"git push all\" (après chmod +x)." >&2
+  return 1
+fi
+
+set -euo pipefail
+
+trap 'echo "ERREUR ligne $LINENO : commande \"$BASH_COMMAND\" a échoué"' ERR
+
+COMMIT_MESSAGE="$(date +%F)"
+BRANCHES=(TP1_travel_planner_LLM TP2_travel_planner_RAG TP3_travel_planner_Agent dev)
+
+# 1) Push normal (historique complet) vers GitLab
+for branch in "${BRANCHES[@]}"; do
+  git checkout "$branch"
+  git push --force-with-lease origin "$branch"
+done
+
+# 2) Push "clean" (1 commit orphan) vers GitHub
+for branch in "${BRANCHES[@]}"; do
+  public_branch="${branch}_public"
+
+  git checkout "$branch"
+  git branch -D "$public_branch" 2>/dev/null || true
+  git checkout --orphan "$public_branch"
+
+  git add -A
+  git commit -m "$COMMIT_MESSAGE"
+
+  git push -f github "$public_branch:$branch"
+
+  git checkout "$branch"
+  git branch -D "$public_branch"
+done
+
+git checkout dev
